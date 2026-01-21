@@ -1,0 +1,7 @@
+{
+  "name": "Simulizi na Hadithi",
+  "description": "A premium story platform for readers and writers. Features text stories, audio narrations, writer earnings management, and an admin approval workflow with TZS 200 per episode micro-payments.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

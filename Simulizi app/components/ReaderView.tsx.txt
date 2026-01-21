@@ -1,0 +1,301 @@
+
+import React, { useState, useEffect, useRef } from 'react';
+import { Story, Episode, Language } from '../types';
+import { PRICING } from '../constants';
+import { translations } from '../translations';
+
+interface ReaderViewProps {
+  stories: Story[];
+  onPay: (storyId: string, episodeId: string) => void;
+  unlockedEpisodes: string[];
+  lang: Language;
+}
+
+export const ReaderView: React.FC<ReaderViewProps> = ({ stories, onPay, unlockedEpisodes, lang }) => {
+  const [selectedStory, setSelectedStory] = useState<Story | null>(null);
+  const [activeEpisode, setActiveEpisode] = useState<Episode | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
+
+  const t = translations[lang];
+
+  const isLocked = (story: Story, episode: Episode) => {
+    if (!story.isPaid) return false;
+    if (episode.order <= PRICING.FREE_EPISODES_LIMIT) return false;
+    return !unlockedEpisodes.includes(episode.id);
+  };
+
+  const decodeBase64 = (base64: string) => {
+    const binaryString = atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes;
+  };
+
+  const decodeAudioData = async (
+    data: Uint8Array,
+    ctx: AudioContext,
+    sampleRate: number,
+    numChannels: number,
+  ): Promise<AudioBuffer> => {
+    const dataInt16 = new Int16Array(data.buffer);
+    const frameCount = dataInt16.length / numChannels;
+    const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
+
+    for (let channel = 0; channel < numChannels; channel++) {
+      const channelData = buffer.getChannelData(channel);
+      for (let i = 0; i < frameCount; i++) {
+        channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
+      }
+    }
+    return buffer;
+  };
+
+  const handlePlayAudio = async (base64Audio: string) => {
+    if (isPlaying) {
+      sourceNodeRef.current?.stop();
+      setIsPlaying(false);
+      return;
+    }
+
+    if (!audioContextRef.current) {
+      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+    }
+
+    const bytes = decodeBase64(base64Audio);
+    const buffer = await decodeAudioData(bytes, audioContextRef.current, 24000, 1);
+    
+    const source = audioContextRef.current.createBufferSource();
+    source.buffer = buffer;
+    source.connect(audioContextRef.current.destination);
+    source.onended = () => setIsPlaying(false);
+    source.start(0);
+    
+    sourceNodeRef.current = source;
+    setIsPlaying(true);
+  };
+
+  useEffect(() => {
+    return () => {
+      sourceNodeRef.current?.stop();
+      audioContextRef.current?.close();
+    };
+  }, []);
+
+  if (activeEpisode && selectedStory) {
+    return (
+      <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100">
+        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+          <div>
+            <h2 className="text-xl font-bold text-slate-800">{activeEpisode.title}</h2>
+            <p className="text-sm text-slate-500">{selectedStory.title} • {selectedStory.authorName}</p>
+          </div>
+          <button 
+            onClick={() => {
+              sourceNodeRef.current?.stop();
+              setIsPlaying(false);
+              setActiveEpisode(null);
+            }}
+            className="text-slate-400 hover:text-slate-600 p-2"
+          >
+            ✕
+          </button>
+        </div>
+        
+        <div className="p-8 min-h-[400px]">
+          {activeEpisode.audioContent && (
+            <div className="mb-8 p-6 bg-indigo-50 rounded-2xl border border-indigo-100 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${isPlaying ? 'bg-indigo-600 animate-pulse' : 'bg-white shadow-sm'}`}>
+                  <svg className={`w-6 h-6 ${isPlaying ? 'text-white' : 'text-indigo-600'}`} fill="currentColor" viewBox="0 0 24 24">
+                    {isPlaying ? <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/> : <path d="M8 5v14l11-7z"/>}
+                  </svg>
+                </div>
+                <div>
+                  <p className="font-bold text-indigo-900">{t.narrationAvailable}</p>
+                  <p className="text-xs text-indigo-500 font-medium uppercase tracking-wider">{t.generatedByGemini}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => handlePlayAudio(activeEpisode.audioContent!)}
+                className={`px-6 py-2 rounded-xl font-bold transition-all ${isPlaying ? 'bg-white text-indigo-600' : 'bg-indigo-600 text-white shadow-lg shadow-indigo-200'}`}
+              >
+                {isPlaying ? t.stop : t.listenToNarration}
+              </button>
+            </div>
+          )}
+
+          {selectedStory.type === 'text' ? (
+            <div className="prose prose-slate max-w-none">
+              <p className="text-lg leading-relaxed text-slate-700 whitespace-pre-wrap">{activeEpisode.content}</p>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center gap-8 py-12">
+              <div className="w-48 h-48 bg-indigo-100 rounded-full flex items-center justify-center animate-pulse">
+                <svg className="w-24 h-24 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15.536a5 5 0 001.414 1.414m2.828-9.9a9 9 0 012.828 2.828M12 14v3m0 0v3m0-3h3m-3 0H9" />
+                </svg>
+              </div>
+              <audio controls className="w-full max-w-md" src={activeEpisode.content}>
+                Your browser does not support the audio element.
+              </audio>
+              <p className="text-slate-500 font-medium">{lang === 'en' ? 'Listening to' : 'Unasikiliza'} {activeEpisode.title}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
+            <button 
+              disabled={activeEpisode.order === 1}
+              onClick={() => {
+                const prev = selectedStory.episodes.find(e => e.order === activeEpisode.order - 1);
+                if (prev && !isLocked(selectedStory, prev)) {
+                  sourceNodeRef.current?.stop();
+                  setIsPlaying(false);
+                  setActiveEpisode(prev);
+                }
+              }}
+              className="px-6 py-2 rounded-lg bg-white border border-slate-200 text-slate-700 font-medium hover:bg-slate-100 disabled:opacity-50"
+            >
+              {t.previous}
+            </button>
+            <button 
+              disabled={activeEpisode.order === selectedStory.episodes.length}
+              onClick={() => {
+                const next = selectedStory.episodes.find(e => e.order === activeEpisode.order + 1);
+                if (next) {
+                  if (isLocked(selectedStory, next)) {
+                    alert(lang === 'en' ? "This episode is locked." : "Kipindi hiki kimefungwa.");
+                  } else {
+                    sourceNodeRef.current?.stop();
+                    setIsPlaying(false);
+                    setActiveEpisode(next);
+                  }
+                }
+              }}
+              className="px-6 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {t.next}
+            </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (selectedStory) {
+    return (
+      <div className="animate-fade-in">
+        <button onClick={() => setSelectedStory(null)} className="flex items-center gap-2 text-indigo-600 font-semibold mb-6 hover:translate-x-[-4px] transition-transform">
+          ← {t.backToLibrary}
+        </button>
+        
+        <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden mb-8">
+          <div className="md:flex">
+            <div className="md:w-1/3">
+              <img src={selectedStory.coverImage} className="w-full h-full object-cover" alt={selectedStory.title} />
+            </div>
+            <div className="md:w-2/3 p-8">
+              <div className="flex gap-2 mb-4">
+                <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${selectedStory.isPaid ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                  {selectedStory.isPaid ? t.premium : t.free}
+                </span>
+                <span className="px-3 py-1 bg-slate-100 text-slate-800 rounded-full text-[10px] font-black uppercase tracking-widest">
+                  {selectedStory.type === 'text' ? (lang === 'en' ? 'Readable' : 'Inasomeka') : (lang === 'en' ? 'Audio' : 'Sauti')}
+                </span>
+              </div>
+              <h1 className="text-4xl font-serif font-bold text-slate-900 mb-2">{selectedStory.title}</h1>
+              <p className="text-slate-500 mb-6 font-medium">{lang === 'en' ? 'By' : 'Na'} {selectedStory.authorName}</p>
+              <p className="text-slate-600 leading-relaxed mb-8">{selectedStory.description}</p>
+              
+              <div className="space-y-4">
+                <h3 className="font-bold text-slate-800 text-lg border-b pb-2">{t.episodes}</h3>
+                <div className="grid gap-3">
+                  {selectedStory.episodes.map(ep => {
+                    const locked = isLocked(selectedStory, ep);
+                    return (
+                      <div key={ep.id} className="group flex items-center justify-between p-4 rounded-xl border border-slate-100 hover:border-indigo-200 hover:bg-indigo-50/30 transition-all">
+                        <div className="flex items-center gap-4">
+                          <span className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 font-bold text-xs">{ep.order}</span>
+                          <span className={`font-semibold ${locked ? 'text-slate-400' : 'text-slate-800'}`}>{ep.title}</span>
+                          {ep.order <= PRICING.FREE_EPISODES_LIMIT && selectedStory.isPaid && (
+                            <span className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-black uppercase">{t.sample}</span>
+                          )}
+                          {ep.audioContent && !locked && (
+                            <div className="w-5 h-5 bg-indigo-100 rounded-full flex items-center justify-center">
+                              <svg className="w-3 h-3 text-indigo-600" fill="currentColor" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+                            </div>
+                          )}
+                        </div>
+                        {locked ? (
+                          <button 
+                            onClick={() => onPay(selectedStory.id, ep.id)}
+                            className="bg-amber-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-amber-600 active:scale-95 transition-all"
+                          >
+                            {t.unlock} (TZS {PRICING.EPISODE_COST_TZS})
+                          </button>
+                        ) : (
+                          <button 
+                            onClick={() => setActiveEpisode(ep)}
+                            className="text-indigo-600 font-bold text-sm flex items-center gap-1 group-hover:translate-x-1 transition-transform"
+                          >
+                            {selectedStory.type === 'text' ? t.readNow : t.listenNow} →
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex justify-between items-end mb-8">
+        <div>
+          <h2 className="text-3xl font-serif font-bold text-slate-900">{t.recommended}</h2>
+          <p className="text-slate-500 mt-1">{t.discover}</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+        {stories.map(story => (
+          <div 
+            key={story.id} 
+            className="group cursor-pointer bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 border border-slate-200 flex flex-col"
+            onClick={() => setSelectedStory(story)}
+          >
+            <div className="relative aspect-[3/4] overflow-hidden">
+              <img src={story.coverImage} alt={story.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+              <div className="absolute top-3 left-3 flex flex-col gap-1">
+                <span className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${story.isPaid ? 'bg-amber-500 text-white' : 'bg-emerald-500 text-white shadow-lg'}`}>
+                  {story.isPaid ? t.premium : t.free}
+                </span>
+                <span className="px-3 py-1 bg-white/90 backdrop-blur rounded-lg text-[10px] font-black text-slate-800 uppercase tracking-widest">
+                  {story.type === 'text' ? (lang === 'en' ? 'Readable' : 'Maandishi') : (lang === 'en' ? 'Audio' : 'Sauti')}
+                </span>
+              </div>
+            </div>
+            <div className="p-5 flex-1 flex flex-col">
+              <h3 className="text-lg font-bold text-slate-900 group-hover:text-indigo-600 transition-colors line-clamp-1">{story.title}</h3>
+              <p className="text-xs text-slate-400 font-medium mb-3 uppercase tracking-wide">{lang === 'en' ? 'By' : 'Na'} {story.authorName}</p>
+              <p className="text-sm text-slate-600 line-clamp-2 mb-4 flex-1">{story.description}</p>
+              <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+                <span className="text-xs font-bold text-slate-400">{story.episodes.length} {t.episodes}</span>
+                <span className="text-indigo-600 font-bold text-sm">{lang === 'en' ? 'View Story' : 'Angalia Hadithi'} →</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};

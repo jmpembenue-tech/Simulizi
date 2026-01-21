@@ -1,0 +1,88 @@
+
+import React, { useState } from 'react';
+import { Story, ContentStatus, Language, PayoutRequest } from '../types';
+import { translations } from '../translations';
+
+interface AdminPanelProps {
+  stories: Story[];
+  onUpdateStatus: (id: string, status: ContentStatus) => void;
+  lang: Language;
+  payoutRequests: PayoutRequest[];
+  onCompletePayout: (id: string) => void;
+}
+
+export const AdminPanel: React.FC<AdminPanelProps> = ({ stories, onUpdateStatus, lang, payoutRequests, onCompletePayout }) => {
+  const [tab, setTab] = useState<'content' | 'payouts'>('content');
+  const t = translations[lang];
+
+  const pendingStories = stories.filter(s => s.status === 'pending');
+  const pendingPayouts = payoutRequests.filter(p => p.status === 'pending');
+
+  return (
+    <div className="max-w-6xl mx-auto">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-6">
+        <div>
+          <h2 className="text-3xl font-serif font-bold text-slate-900">{t.moderationPortal}</h2>
+          <p className="text-slate-500 mt-1">{lang === 'en' ? 'Manage stories and payments.' : 'Dhibiti hadithi na malipo.'}</p>
+        </div>
+        <div className="flex bg-slate-100 p-1.5 rounded-2xl">
+          <button onClick={() => setTab('content')} className={`px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${tab === 'content' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}>{lang === 'en' ? 'Content' : 'Maudhui'}</button>
+          <button onClick={() => setTab('payouts')} className={`px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${tab === 'payouts' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}>{t.payoutRequests}</button>
+        </div>
+      </div>
+
+      {tab === 'content' ? (
+        <div className="space-y-12">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+            <div className="p-6 rounded-2xl bg-white border border-slate-200">
+              <p className="text-xs font-bold text-slate-400 uppercase mb-1">{t.waitingApproval}</p>
+              <p className="text-3xl font-black text-amber-500">{pendingStories.length}</p>
+            </div>
+          </div>
+          <div className="grid gap-4">
+            {pendingStories.map(story => (
+              <div key={story.id} className="bg-white p-6 rounded-2xl border border-slate-200 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm">
+                <div className="flex items-center gap-6 flex-1">
+                  <img src={story.coverImage} className="w-16 h-20 rounded-lg object-cover" alt="" />
+                  <div>
+                    <h4 className="font-bold text-slate-900">{story.title}</h4>
+                    <p className="text-[10px] text-slate-400 uppercase font-black">{story.authorName}</p>
+                  </div>
+                </div>
+                <div className="flex gap-3 w-full md:w-auto">
+                  <button onClick={() => onUpdateStatus(story.id, 'rejected')} className="flex-1 md:flex-none px-6 py-2 rounded-xl bg-slate-50 text-slate-600 font-bold hover:bg-rose-50 hover:text-rose-600 transition-colors">{t.reject}</button>
+                  <button onClick={() => onUpdateStatus(story.id, 'approved')} className="flex-1 md:flex-none px-6 py-2 rounded-xl bg-indigo-600 text-white font-bold hover:bg-emerald-600 transition-colors">{t.approve}</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {pendingPayouts.map(p => (
+            <div key={p.id} className="bg-white p-8 rounded-3xl border border-slate-200 flex flex-col md:flex-row items-center justify-between gap-8 shadow-sm">
+              <div className="flex-1">
+                <div className="flex items-center gap-4 mb-2">
+                  <h4 className="font-black text-xl text-slate-900">{p.writerName}</h4>
+                  <span className="px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-[9px] font-black uppercase">{p.status}</span>
+                </div>
+                <div className="flex flex-wrap gap-x-8 gap-y-2">
+                  <p className="text-sm text-slate-500"><span className="font-bold">{t.amountToWithdraw}:</span> TZS {p.amount.toLocaleString()}</p>
+                  <p className="text-sm text-slate-500"><span className="font-bold">{t.network}:</span> {p.paymentMethod}</p>
+                  <p className="text-sm text-slate-500"><span className="font-bold">{t.paymentDetails}:</span> {p.phoneNumber}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => onCompletePayout(p.id)}
+                className="w-full md:w-auto px-8 py-3 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-emerald-600 shadow-xl shadow-indigo-100 transition-all"
+              >
+                {t.markAsPaid}
+              </button>
+            </div>
+          ))}
+          {pendingPayouts.length === 0 && <div className="text-center py-20 text-slate-400 font-bold uppercase tracking-widest text-xs">No pending payouts.</div>}
+        </div>
+      )}
+    </div>
+  );
+};
